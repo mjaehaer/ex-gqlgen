@@ -1,0 +1,28 @@
+# GraphQL schema example
+#
+# https://gqlgen.com/getting-started/
+
+type Tweet {
+  id: ID!
+  cotentText: String!
+  publicationDate: String!
+  authoId: String!
+}
+
+type User {
+  id: ID!
+  profileName: String!
+}
+
+type Query {
+  tweets: [Tweet!]!
+}
+
+input NewTweet {
+  cotentText: String!
+  authoId: String!
+}
+
+type Mutation {
+  createTweet(input: NewTweet!): Tweet!
+}
