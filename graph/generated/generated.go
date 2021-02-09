@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,7 @@ type Config struct {
 type ResolverRoot interface {
 	Mutation() MutationResolver
 	Query() QueryResolver
+	Subscription() SubscriptionResolver
 }
 
 type DirectiveRoot struct {
@@ -44,11 +46,16 @@ type DirectiveRoot struct {
 
 type ComplexityRoot struct {
 	Mutation struct {
-		CreateTweet func(childComplexity int, input model.NewTweet) int
+		CreateTweet     func(childComplexity int, input model.NewTweet) int
+		GetTweetsOnDate func(childComplexity int, input string) int
 	}
 
 	Query struct {
 		Tweets func(childComplexity int) int
+	}
+
+	Subscription struct {
+		SubscritTweet func(childComplexity int, user string) int
 	}
 
 	Tweet struct {
@@ -66,9 +73,13 @@ type ComplexityRoot struct {
 
 type MutationResolver interface {
 	CreateTweet(ctx context.Context, input model.NewTweet) (*model.Tweet, error)
+	GetTweetsOnDate(ctx context.Context, input string) ([]*model.Tweet, error)
 }
 type QueryResolver interface {
 	Tweets(ctx context.Context) ([]*model.Tweet, error)
+}
+type SubscriptionResolver interface {
+	SubscritTweet(ctx context.Context, user string) (<-chan []*model.Tweet, error)
 }
 
 type executableSchema struct {
@@ -98,12 +109,36 @@ func (e *executableSchema) Complexity(typeName, field string, childComplexity in
 
 		return e.complexity.Mutation.CreateTweet(childComplexity, args["input"].(model.NewTweet)), true
 
+	case "Mutation.getTweetsOnDate":
+		if e.complexity.Mutation.GetTweetsOnDate == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_getTweetsOnDate_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Mutation.GetTweetsOnDate(childComplexity, args["input"].(string)), true
+
 	case "Query.tweets":
 		if e.complexity.Query.Tweets == nil {
 			break
 		}
 
 		return e.complexity.Query.Tweets(childComplexity), true
+
+	case "Subscription.subscritTweet":
+		if e.complexity.Subscription.SubscritTweet == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_subscritTweet_args(context.TODO(), rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.complexity.Subscription.SubscritTweet(childComplexity, args["User"].(string)), true
 
 	case "Tweet.authoId":
 		if e.complexity.Tweet.AuthoID == nil {
@@ -185,6 +220,23 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 				Data: buf.Bytes(),
 			}
 		}
+	case ast.Subscription:
+		next := ec._Subscription(ctx, rc.Operation.SelectionSet)
+
+		var buf bytes.Buffer
+		return func(ctx context.Context) *graphql.Response {
+			buf.Reset()
+			data := next()
+
+			if data == nil {
+				return nil
+			}
+			data.MarshalGQL(&buf)
+
+			return &graphql.Response{
+				Data: buf.Bytes(),
+			}
+		}
 
 	default:
 		return graphql.OneShot(graphql.ErrorResponse(ctx, "unsupported GraphQL operation"))
@@ -219,7 +271,7 @@ type Tweet {
   id: ID!
   cotentText: String!
   publicationDate: String!
-  authoId: String!
+  authoId: User!
 }
 
 type User {
@@ -238,6 +290,11 @@ input NewTweet {
 
 type Mutation {
   createTweet(input: NewTweet!): Tweet!
+  getTweetsOnDate(input: String!): [Tweet!]!
+}
+
+type Subscription {
+  subscritTweet(User: String!): [Tweet!]!
 }`, BuiltIn: false},
 }
 var parsedSchema = gqlparser.MustLoadSchema(sources...)
@@ -261,6 +318,21 @@ func (ec *executionContext) field_Mutation_createTweet_args(ctx context.Context,
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_getTweetsOnDate_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["input"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("input"))
+		arg0, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["input"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
 	var err error
 	args := map[string]interface{}{}
@@ -273,6 +345,21 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		}
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_subscritTweet_args(ctx context.Context, rawArgs map[string]interface{}) (map[string]interface{}, error) {
+	var err error
+	args := map[string]interface{}{}
+	var arg0 string
+	if tmp, ok := rawArgs["User"]; ok {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("User"))
+		arg0, err = ec.unmarshalNString2string(ctx, tmp)
+		if err != nil {
+			return nil, err
+		}
+	}
+	args["User"] = arg0
 	return args, nil
 }
 
@@ -354,6 +441,48 @@ func (ec *executionContext) _Mutation_createTweet(ctx context.Context, field gra
 	res := resTmp.(*model.Tweet)
 	fc.Result = res
 	return ec.marshalNTweet2ᚖgithubᚗcomᚋmjaehaerᚋhackernewsᚋgraphᚋmodelᚐTweet(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) _Mutation_getTweetsOnDate(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = graphql.Null
+		}
+	}()
+	fc := &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		Args:       nil,
+		IsMethod:   true,
+		IsResolver: true,
+	}
+
+	ctx = graphql.WithFieldContext(ctx, fc)
+	rawArgs := field.ArgumentMap(ec.Variables)
+	args, err := ec.field_Mutation_getTweetsOnDate_args(ctx, rawArgs)
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	fc.Args = args
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Mutation().GetTweetsOnDate(rctx, args["input"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return graphql.Null
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	res := resTmp.([]*model.Tweet)
+	fc.Result = res
+	return ec.marshalNTweet2ᚕᚖgithubᚗcomᚋmjaehaerᚋhackernewsᚋgraphᚋmodelᚐTweetᚄ(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) _Query_tweets(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
@@ -460,6 +589,58 @@ func (ec *executionContext) _Query___schema(ctx context.Context, field graphql.C
 	res := resTmp.(*introspection.Schema)
 	fc.Result = res
 	return ec.marshalO__Schema2ᚖgithubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐSchema(ctx, field.Selections, res)
+}
+
+func (ec *executionContext) _Subscription_subscritTweet(ctx context.Context, field graphql.CollectedField) (ret func() graphql.Marshaler) {
+	defer func() {
+		if r := recover(); r != nil {
+			ec.Error(ctx, ec.Recover(ctx, r))
+			ret = nil
+		}
+	}()
+	fc := &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		Args:       nil,
+		IsMethod:   true,
+		IsResolver: true,
+	}
+
+	ctx = graphql.WithFieldContext(ctx, fc)
+	rawArgs := field.ArgumentMap(ec.Variables)
+	args, err := ec.field_Subscription_subscritTweet_args(ctx, rawArgs)
+	if err != nil {
+		ec.Error(ctx, err)
+		return nil
+	}
+	fc.Args = args
+	resTmp, err := ec.ResolverMiddleware(ctx, func(rctx context.Context) (interface{}, error) {
+		ctx = rctx // use context from middleware stack in children
+		return ec.resolvers.Subscription().SubscritTweet(rctx, args["User"].(string))
+	})
+	if err != nil {
+		ec.Error(ctx, err)
+		return nil
+	}
+	if resTmp == nil {
+		if !graphql.HasFieldError(ctx, fc) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return nil
+	}
+	return func() graphql.Marshaler {
+		res, ok := <-resTmp.(<-chan []*model.Tweet)
+		if !ok {
+			return nil
+		}
+		return graphql.WriterFunc(func(w io.Writer) {
+			w.Write([]byte{'{'})
+			graphql.MarshalString(field.Alias).MarshalGQL(w)
+			w.Write([]byte{':'})
+			ec.marshalNTweet2ᚕᚖgithubᚗcomᚋmjaehaerᚋhackernewsᚋgraphᚋmodelᚐTweetᚄ(ctx, field.Selections, res).MarshalGQL(w)
+			w.Write([]byte{'}'})
+		})
+	}
 }
 
 func (ec *executionContext) _Tweet_id(ctx context.Context, field graphql.CollectedField, obj *model.Tweet) (ret graphql.Marshaler) {
@@ -597,9 +778,9 @@ func (ec *executionContext) _Tweet_authoId(ctx context.Context, field graphql.Co
 		}
 		return graphql.Null
 	}
-	res := resTmp.(string)
+	res := resTmp.(*model.User)
 	fc.Result = res
-	return ec.marshalNString2string(ctx, field.Selections, res)
+	return ec.marshalNUser2ᚖgithubᚗcomᚋmjaehaerᚋhackernewsᚋgraphᚋmodelᚐUser(ctx, field.Selections, res)
 }
 
 func (ec *executionContext) _User_id(ctx context.Context, field graphql.CollectedField, obj *model.User) (ret graphql.Marshaler) {
@@ -1815,6 +1996,11 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				invalids++
 			}
+		case "getTweetsOnDate":
+			out.Values[i] = ec._Mutation_getTweetsOnDate(ctx, field)
+			if out.Values[i] == graphql.Null {
+				invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -1868,6 +2054,26 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 		return graphql.Null
 	}
 	return out
+}
+
+var subscriptionImplementors = []string{"Subscription"}
+
+func (ec *executionContext) _Subscription(ctx context.Context, sel ast.SelectionSet) func() graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, subscriptionImplementors)
+	ctx = graphql.WithFieldContext(ctx, &graphql.FieldContext{
+		Object: "Subscription",
+	})
+	if len(fields) != 1 {
+		ec.Errorf(ctx, "must subscribe to exactly one stream")
+		return nil
+	}
+
+	switch fields[0].Name {
+	case "subscritTweet":
+		return ec._Subscription_subscritTweet(ctx, fields[0])
+	default:
+		panic("unknown field " + strconv.Quote(fields[0].Name))
+	}
 }
 
 var tweetImplementors = []string{"Tweet"}
@@ -2288,6 +2494,16 @@ func (ec *executionContext) marshalNTweet2ᚖgithubᚗcomᚋmjaehaerᚋhackernew
 		return graphql.Null
 	}
 	return ec._Tweet(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNUser2ᚖgithubᚗcomᚋmjaehaerᚋhackernewsᚋgraphᚋmodelᚐUser(ctx context.Context, sel ast.SelectionSet, v *model.User) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			ec.Errorf(ctx, "must not be null")
+		}
+		return graphql.Null
+	}
+	return ec._User(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalN__Directive2githubᚗcomᚋ99designsᚋgqlgenᚋgraphqlᚋintrospectionᚐDirective(ctx context.Context, sel ast.SelectionSet, v introspection.Directive) graphql.Marshaler {

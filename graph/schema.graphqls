@@ -6,7 +6,7 @@ type Tweet {
   id: ID!
   cotentText: String!
   publicationDate: String!
-  authoId: String!
+  authoId: User!
 }
 
 type User {
@@ -25,4 +25,9 @@ input NewTweet {
 
 type Mutation {
   createTweet(input: NewTweet!): Tweet!
+  getTweetsOnDate(input: String!): [Tweet!]!
+}
+
+type Subscription {
+  subscritTweet(User: String!): [Tweet!]!
 }

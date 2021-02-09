@@ -11,7 +11,7 @@ type Tweet struct {
 	ID              string `json:"id"`
 	CotentText      string `json:"cotentText"`
 	PublicationDate string `json:"publicationDate"`
-	AuthoID         string `json:"authoId"`
+	AuthoID         *User  `json:"authoId"`
 }
 
 type User struct {
